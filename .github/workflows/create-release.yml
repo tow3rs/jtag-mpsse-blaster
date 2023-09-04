@@ -1,0 +1,110 @@
+name: Create release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-release:
+    name: Check release
+    runs-on: ubuntu-latest
+    outputs:
+      exists_release: ${{ steps.check-tag.outputs.exists_release }}
+      version: ${{ steps.version.outputs.version }}
+      
+    steps:    
+    - name: Checkout
+      uses: actions/checkout@v3  
+      
+    - name: Get version
+      id: version
+      run: echo "version=$(cat version)" >> "$GITHUB_OUTPUT"     
+      
+    - name: Check tags
+      id: check-tag
+      run: |
+        git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+        git show-ref --tags --verify --quiet -- "refs/tags/v${{ steps.version.outputs.version }}" && echo "exists_release=true" >> "$GITHUB_OUTPUT"  || echo "exists_release=false" >> "$GITHUB_OUTPUT"
+        
+  create-release:
+    name: Create release
+    if: needs.check-release.outputs.exists_release == false
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.release.outputs.upload_url }}
+    permissions: write-all
+    needs: [check-release]
+    steps:
+    
+    - name: Get date
+      id: date
+      run: echo "date=$(date +'%Y.%m.%d')" >> "$GITHUB_OUTPUT"  
+    
+    - name: Create release
+      id: release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ needs.check-release.outputs.version }}
+        release_name: Release ${{ needs.check-release.outputs.version }} (${{ steps.date.outputs.date }})
+        draft: false
+        prerelease: false  
+
+  build-linux: 
+    name: Build and upload Linux release
+    if: needs.check-release.outputs.exists_release == false
+    runs-on: ubuntu-latest
+    permissions: write-all
+    needs: [check-release, create-release] 
+    steps: 
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        
+      - name: Build
+        run: |
+          make
+          zip --junk-paths Linux.zip libjtag_hw_mpsse.so jtag_scan_tool 98-jtag-mpsse-blaster.rules
+
+      - name: Upload
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: Linux.zip
+          asset_name: Linux-v${{ needs.check-release.outputs.version }}.zip
+          asset_content_type: application/zip
+
+  build-windows:
+    name: Build and upload Windows release
+    if: needs.check-release.outputs.exists_release == false
+    runs-on: windows-latest
+    permissions: write-all
+    needs: [check-release, create-release] 
+    steps:
+    
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v1.1
+        with:
+          msbuild-architecture: x64
+      - name: Build
+        run: |
+            msbuild Windows/JTAG-MPSSE-Blaster.sln -t:rebuild -p:Configuration=Release -p:Platform=x64
+            powershell Compress-Archive -LiteralPath 'Windows/Release/jtag_hw_mpsse.dll', 'Windows/Release/jtag_scan_tool.exe' -DestinationPath Windows.zip
+
+      - name: Upload
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: Windows.zip
+          asset_name: Windows-v${{ needs.check-release.outputs.version }}.zip
+          asset_content_type: application/zip
