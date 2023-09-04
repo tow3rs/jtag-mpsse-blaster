@@ -1,0 +1,1 @@
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6014", ATTRS{product}=="Single RS232-HS", MODE="0666", RUN+="/bin/sh -c 'echo $kernel:1.0 > /sys/bus/usb/drivers/ftdi_sio/unbind'"
