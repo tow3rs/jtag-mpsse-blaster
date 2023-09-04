@@ -66,6 +66,7 @@ jobs:
         
       - name: Build
         run: |
+          cd Linux
           make
           zip --junk-paths Linux.zip libjtag_hw_mpsse.so jtag_scan_tool 98-jtag-mpsse-blaster.rules
 
