@@ -20,13 +20,13 @@ jobs:
       
     - name: Get version
       id: version
-      run: echo "version=$(cat version)" >> "$GITHUB_OUTPUT"     
+      run: echo "version=$(cat version)" >> $GITHUB_OUTPUT
       
     - name: Check tags
       id: check-tag
       run: |
         git fetch --depth=1 origin +refs/tags/*:refs/tags/*
-        git show-ref --tags --verify --quiet -- "refs/tags/v${{ steps.version.outputs.version }}" && echo "exists_release=true" >> "$GITHUB_OUTPUT"  || echo "exists_release=false" >> "$GITHUB_OUTPUT"
+        git show-ref --tags --verify --quiet -- "refs/tags/v${{ steps.version.outputs.version }}" && echo "exists_release=true" >> $GITHUB_OUTPUT || echo "exists_release=false" >> $GITHUB_OUTPUT
         
   create-release:
     name: Create release
@@ -40,7 +40,7 @@ jobs:
     
     - name: Get date
       id: date
-      run: echo "date=$(date +'%Y.%m.%d')" >> "$GITHUB_OUTPUT"  
+      run: echo "date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
     
     - name: Create release
       id: release
