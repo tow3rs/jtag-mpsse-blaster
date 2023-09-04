@@ -76,7 +76,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: Linux.zip
+          asset_path: Linux/Linux.zip
           asset_name: Linux-v${{ needs.check-release.outputs.version }}.zip
           asset_content_type: application/zip
 
