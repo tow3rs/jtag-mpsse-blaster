@@ -30,7 +30,7 @@ jobs:
         
   create-release:
     name: Create release
-    if: needs.check-release.outputs.exists_release == false
+    if: needs.check-release.outputs.exists_release == 'false'
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.release.outputs.upload_url }}
@@ -55,7 +55,7 @@ jobs:
 
   build-linux: 
     name: Build and upload Linux release
-    if: needs.check-release.outputs.exists_release == false
+    if: needs.check-release.outputs.exists_release == 'false'
     runs-on: ubuntu-latest
     permissions: write-all
     needs: [check-release, create-release] 
@@ -81,7 +81,7 @@ jobs:
 
   build-windows:
     name: Build and upload Windows release
-    if: needs.check-release.outputs.exists_release == false
+    if: needs.check-release.outputs.exists_release == 'false'
     runs-on: windows-latest
     permissions: write-all
     needs: [check-release, create-release] 
