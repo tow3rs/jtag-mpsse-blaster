@@ -123,8 +123,11 @@ FT_STATUS FTSendReceive(FT_HANDLE ftdih, unsigned char* outBuffer, unsigned int 
 JTAGClientData* InitDevice(unsigned int devNum, JTAGServerOperations* serverOperations, void* serverInstance)
 {
 	FT_STATUS status;
-	unsigned char buffer[7];
+	unsigned char buffer[1024];
 	DWORD dwNumBytesToSend;
+	DWORD dwNumBytesToRead;
+	DWORD dwNumBytesSent;
+	DWORD dwNumBytesRead;
 	int clockDivisor;
 	DWORD numDevices;
 	DWORD dwFlags;
@@ -173,6 +176,25 @@ JTAGClientData* InitDevice(unsigned int devNum, JTAGServerOperations* serverOper
 	status |= FT_SetFlowControl(hwData->deviceHandle, FT_FLOW_RTS_CTS, 0x00, 0x00);  //Turn on flow control to synchronize IN requests https://www.ftdicommunity.com/index.php?topic=657.0
 	status |= FT_SetBitMode(hwData->deviceHandle, 0, FT_BITMODE_RESET);
 	status |= FT_SetBitMode(hwData->deviceHandle, 0, FT_BITMODE_MPSSE);
+
+	dwNumBytesToSend = 0;
+	buffer[dwNumBytesToSend++] = 0xAA;
+	buffer[dwNumBytesToSend++] = FT_OPCODE_SEND_IMMEDIATE;
+	status |= FT_Write(hwData->deviceHandle, buffer, dwNumBytesToSend, &dwNumBytesSent);
+	do
+	{
+		status |= FT_GetQueueStatus(hwData->deviceHandle, &dwNumBytesToRead);
+	} while ((dwNumBytesToRead == 0) && (status == FT_OK));
+
+	status |= FT_Read(hwData->deviceHandle, buffer, dwNumBytesToRead, &dwNumBytesRead);
+
+	for (DWORD dwCount = 0; dwCount < dwNumBytesRead - 1; dwCount++)		
+	{
+		if ((buffer[dwCount] == 0xFA) && (buffer[dwCount + 1] == 0xAA))
+		{
+			break;
+		}
+	}
 
 	// Set initial states of the MPSSE interface - low byte, both pin directions and output values
 	// Pin	  Signal	Direction
@@ -267,9 +289,9 @@ BOOL ScanPorts(unsigned int index, char* portName, int size)
 				if (deviceCount == index)
 				{
 #ifdef _WIN32
-					sprintf_s(portName, size, "%02d %s (%04X:%04X)", index, description, validDevices[j].VID, validDevices[j].PID);
+					sprintf_s(portName, size, "%02d %s", index, description);
 #else
-					sprintf(portName, "%02d %s (%04X:%04X)", index, description, validDevices[j].VID, validDevices[j].PID);
+					sprintf(portName, "%02d %s", index, description);
 #endif
 					return TRUE;
 				}
@@ -296,10 +318,10 @@ DWORD OpenHardware(JTAGClientData** mpsseBlaster, char* deviceName, JTAGServerOp
 		*mpsseBlaster = InitDevice(devnum, serverOperations, serverInstance);
 		if (*mpsseBlaster)
 		{
-			return 0;
+			return 1;
 		}
 	}
-	return 1;
+	return 0;
 }
 
 DWORD CloseHardware(JTAGClientData* mpsseBlaster)
@@ -481,7 +503,7 @@ static JtagClientOperations hwDevice =
 	.Reserved1 = NULL,
 	.ScanPorts = ScanPorts,
 	.Reserved2 = NULL,
-	.OpenHardware = NULL,
+	.OpenHardware = OpenHardware,
 	.CloseHardware = CloseHardware,
 	.SetParam = NULL,
 	.GetParam = GetParam,
@@ -495,7 +517,7 @@ static JtagClientOperations hwDevice =
 	.Recirculate = NULL,
 	.SetParamBlock = NULL,
 	.GetParamBlock = NULL,
-	.InitDriver = OpenHardware,
+	.InitDriver = NULL,
 	.EnableActiveSerial = NULL,
 	.RemoveDriver = NULL,
 };
