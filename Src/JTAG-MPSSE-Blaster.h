@@ -80,6 +80,7 @@ typedef struct
 
 	unsigned char ftIOBuffer[BUFFER_SIZE];
 	unsigned char tdoBits[BUFFER_SIZE];
+	unsigned char tdoBitCountPerByte[BUFFER_SIZE];
 
 	unsigned short* numberOfBytes;
 	unsigned int tdoPosition;
@@ -88,6 +89,7 @@ typedef struct
 	unsigned char currentByte;
 	StateMachine status;
 	unsigned int bytePosition;
+	unsigned int bytesToReceive;
 	FT_HANDLE deviceHandle;
 }JTAGClientData;
 
