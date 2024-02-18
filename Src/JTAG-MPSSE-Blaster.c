@@ -169,7 +169,7 @@ JTAGClientData* InitDevice(unsigned int devNum, JTAGServerOperations* serverOper
 
 	status |= FT_Open(devNum, &hwData->deviceHandle);
 	status |= FT_ResetDevice(hwData->deviceHandle);
-	status |= FT_SetUSBParameters(hwData->deviceHandle, BUFFER_SIZE, BUFFER_SIZE);
+	status |= FT_SetUSBParameters(hwData->deviceHandle, BUFFER_SIZE, BUFFER_SIZE-1);
 	status |= FT_SetChars(hwData->deviceHandle, 0, 0, 0, 0);
 	status |= FT_SetTimeouts(hwData->deviceHandle, 200, 200);
 	status |= FT_SetLatencyTimer(hwData->deviceHandle, 10);
@@ -178,7 +178,7 @@ JTAGClientData* InitDevice(unsigned int devNum, JTAGServerOperations* serverOper
 	status |= FT_SetBitMode(hwData->deviceHandle, 0, FT_BITMODE_MPSSE);
 
 	dwNumBytesToSend = 0;
-	buffer[dwNumBytesToSend++] = 0xAA;
+	buffer[dwNumBytesToSend++] = FT_OPCODE_INVALID_COMMAND;
 	buffer[dwNumBytesToSend++] = FT_OPCODE_SEND_IMMEDIATE;
 	status |= FT_Write(hwData->deviceHandle, buffer, dwNumBytesToSend, &dwNumBytesSent);
 	do
@@ -339,10 +339,11 @@ DWORD CloseHardware(JTAGClientData* mpsseBlaster)
 
 BOOL Flush(JTAGClientData* mpsseBlaster, BOOL store, int position)
 {
-	if (mpsseBlaster->bytePosition)
+	unsigned int tdoPosition = 0;
+	if (mpsseBlaster->bytesToSend)
 	{
-		mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition] = FT_OPCODE_SEND_IMMEDIATE;
-		FTSendReceive(mpsseBlaster->deviceHandle, mpsseBlaster->ftIOBuffer, mpsseBlaster->bytePosition, mpsseBlaster->ftIOBuffer, mpsseBlaster->bytesToReceive);
+		mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend++] = FT_OPCODE_SEND_IMMEDIATE;
+		FTSendReceive(mpsseBlaster->deviceHandle, mpsseBlaster->ftIOBuffer, mpsseBlaster->bytesToSend, mpsseBlaster->ftIOBuffer, mpsseBlaster->bytesToReceive);
 
 		for (unsigned int inbytePosition = 0; inbytePosition < mpsseBlaster->bytesToReceive; inbytePosition++)
 		{ 
@@ -351,39 +352,38 @@ BOOL Flush(JTAGClientData* mpsseBlaster, BOOL store, int position)
 			for(int inPos = 0; inPos < bitCount; inPos++)
 			{
 				unsigned char tdoSingleBit = 1 & (alignedByte >> inPos);
-				mpsseBlaster->tdoBits[mpsseBlaster->tdoPosition / 8] |= tdoSingleBit << mpsseBlaster->tdoPosition % 8;
-				mpsseBlaster->tdoPosition++;
+				mpsseBlaster->tdoBits[tdoPosition / 8] |= tdoSingleBit << tdoPosition % 8;
+				tdoPosition++;
 			}
 		}
 	}
 
-	if (mpsseBlaster->bitPosition)
+	if (mpsseBlaster->bitsToSend)
 	{
 		unsigned char buffer[4] =
 		{
 			FT_OPCODE_CLOCK_DATA_BITS,
-			mpsseBlaster->bitPosition - 1,
+			mpsseBlaster->bitsToSend - 1,
 			mpsseBlaster->currentByte,
 			FT_OPCODE_SEND_IMMEDIATE
 		};
 
 		FTSendReceive(mpsseBlaster->deviceHandle, buffer, 4, buffer, 1);
+		unsigned char tdoPartialByte = buffer[0] >> (8 - mpsseBlaster->bitsToSend);
 
-		unsigned char tdoPartialByte = buffer[0] >> (8 - mpsseBlaster->bitPosition);
-
-		for (unsigned char bitCount = 0; bitCount < mpsseBlaster->bitPosition; bitCount++)
+		for (unsigned char bitCount = 0; bitCount < mpsseBlaster->bitsToSend; bitCount++)
 		{
 			unsigned char tdoSingleBit = 1 & (tdoPartialByte >> bitCount);
-			mpsseBlaster->tdoBits[mpsseBlaster->tdoPosition / 8] |= tdoSingleBit << (mpsseBlaster->tdoPosition % 8);
-			mpsseBlaster->tdoPosition++;
+			mpsseBlaster->tdoBits[tdoPosition / 8] |= tdoSingleBit << (tdoPosition % 8);
+			tdoPosition++;
 		}
 	}
 
-	if (mpsseBlaster->tdoPosition)
+	if (tdoPosition)
 	{
 		if (mpsseBlaster->serverOperations->StoreTDO)
 		{
-			mpsseBlaster->serverOperations->StoreTDO(mpsseBlaster->serverInstance, mpsseBlaster->tdoBits, mpsseBlaster->tdoPosition);
+			mpsseBlaster->serverOperations->StoreTDO(mpsseBlaster->serverInstance, mpsseBlaster->tdoBits, tdoPosition);
 		}
 
 		if (mpsseBlaster->serverOperations->IndicateFlush)
@@ -395,9 +395,8 @@ BOOL Flush(JTAGClientData* mpsseBlaster, BOOL store, int position)
 	mpsseBlaster->bytesToReceive = 0;
 	memset(mpsseBlaster->tdoBits, 0, BUFFER_SIZE);
 	memset(mpsseBlaster->tdoBitCountPerByte, 0, BUFFER_SIZE);
-	mpsseBlaster->bitPosition = 0;
-	mpsseBlaster->tdoPosition = 0;
-	mpsseBlaster->bytePosition = 0;
+	mpsseBlaster->bitsToSend = 0;
+	mpsseBlaster->bytesToSend = 0;
 	mpsseBlaster->status = FirstByte;
 
 	return TRUE;
@@ -409,54 +408,54 @@ DWORD ClockBits(JTAGClientData* mpsseBlaster, int tms, int tdi, int bitCount, in
 	{
 		if (mpsseBlaster->lastTMS == tms)
 		{
-			if (mpsseBlaster->bitPosition == 0)
+			if (mpsseBlaster->bitsToSend == 0)
 			{
 				mpsseBlaster->currentByte = 0;
 			}
 
-			mpsseBlaster->currentByte |= tdi << mpsseBlaster->bitPosition;
-			mpsseBlaster->bitPosition++;
+			mpsseBlaster->currentByte |= tdi << mpsseBlaster->bitsToSend;
+			mpsseBlaster->bitsToSend++;
 
-			if (mpsseBlaster->bitPosition == 8)
+			if (mpsseBlaster->bitsToSend == 8)
 			{
 				if (mpsseBlaster->status == FirstByte)
 				{
-					mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition++] = FT_OPCODE_CLOCK_DATA_BYTES;
-					mpsseBlaster->numberOfBytes = (unsigned short*)&mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition];
-					mpsseBlaster->bytePosition += 2;
-					*mpsseBlaster->numberOfBytes = 0;
+					mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend++] = FT_OPCODE_CLOCK_DATA_BYTES;
+					mpsseBlaster->numberOfBytesInChunk = (unsigned short*)&mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend];
+					mpsseBlaster->bytesToSend += 2;
+					*mpsseBlaster->numberOfBytesInChunk = 0;
 					mpsseBlaster->status = MultiByte;
 				}
 				else
 				{
-					(*mpsseBlaster->numberOfBytes)++;
+					(*mpsseBlaster->numberOfBytesInChunk)++;
 				}
-				mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition++] = mpsseBlaster->currentByte;
+				mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend++] = mpsseBlaster->currentByte;
 				mpsseBlaster->tdoBitCountPerByte[mpsseBlaster->bytesToReceive++] = 8;
-				mpsseBlaster->bitPosition = 0;
+				mpsseBlaster->bitsToSend = 0;
 				mpsseBlaster->currentByte = 0;
 			}
 		}
 		else
 		{
-			if (mpsseBlaster->bitPosition)
+			if (mpsseBlaster->bitsToSend)
 			{
-				mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition++] = FT_OPCODE_CLOCK_DATA_BITS;
-				mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition++] = mpsseBlaster->bitPosition - 1;
-				mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition++] = mpsseBlaster->currentByte;
-				mpsseBlaster->tdoBitCountPerByte[mpsseBlaster->bytesToReceive++] = mpsseBlaster->bitPosition;
-				mpsseBlaster->bitPosition = 0;
+				mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend++] = FT_OPCODE_CLOCK_DATA_BITS;
+				mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend++] = mpsseBlaster->bitsToSend - 1;
+				mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend++] = mpsseBlaster->currentByte;
+				mpsseBlaster->tdoBitCountPerByte[mpsseBlaster->bytesToReceive++] = mpsseBlaster->bitsToSend;
+				mpsseBlaster->bitsToSend = 0;
 			}
 
-			mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition++] = FT_OPCODE_CLOCK_TMS;
-			mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition++] = 0;
-			mpsseBlaster->ftIOBuffer[mpsseBlaster->bytePosition++] = (unsigned char)((tdi ? 0x80 : 0) | (tms ? 0x3 : 0));
+			mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend++] = FT_OPCODE_CLOCK_TMS;
+			mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend++] = 0;
+			mpsseBlaster->ftIOBuffer[mpsseBlaster->bytesToSend++] = (unsigned char)((tdi ? 0x80 : 0) | (tms ? 0x3 : 0));
 			mpsseBlaster->tdoBitCountPerByte[mpsseBlaster->bytesToReceive++] = 1;
 			mpsseBlaster->lastTMS = tms;
 			mpsseBlaster->status = FirstByte;
 		}
 
-		if (mpsseBlaster->bytePosition > BUFFER_SIZE - 8)
+		if (mpsseBlaster->bytesToSend > BUFFER_SIZE - 8)
 		{
 			Flush(mpsseBlaster, TRUE, position);
 		}

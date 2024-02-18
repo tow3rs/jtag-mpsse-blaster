@@ -33,6 +33,7 @@ typedef void*			HANDLE;
 // Opcodes
 #define FT_OPCODE_CLOCK_TMS 0x6B
 #define FT_OPCODE_SEND_IMMEDIATE 0x87
+#define FT_OPCODE_INVALID_COMMAND 0xAA
 #define FT_OPCODE_CLOCK_DATA_BITS 0x3B
 #define FT_OPCODE_DISABLE_LOOPBACK 0x85
 #define FT_OPCODE_CLOCK_DATA_BYTES 0x39
@@ -77,20 +78,20 @@ typedef struct
 	void* serverInstance;
 	BOOL isHighSpeed;
 	DWORD jtagClock;
+	StateMachine status;
+	FT_HANDLE deviceHandle;
+	int lastTMS;
+
+	unsigned int bytesToSend;
+	unsigned char bitsToSend;
+	unsigned char currentByte;
+	unsigned int bytesToReceive;
+	unsigned short* numberOfBytesInChunk;
 
 	unsigned char ftIOBuffer[BUFFER_SIZE];
 	unsigned char tdoBits[BUFFER_SIZE];
 	unsigned char tdoBitCountPerByte[BUFFER_SIZE];
 
-	unsigned short* numberOfBytes;
-	unsigned int tdoPosition;
-	int lastTMS;
-	unsigned char bitPosition;
-	unsigned char currentByte;
-	StateMachine status;
-	unsigned int bytePosition;
-	unsigned int bytesToReceive;
-	FT_HANDLE deviceHandle;
 }JTAGClientData;
 
 typedef struct
